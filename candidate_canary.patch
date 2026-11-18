@@ -1,0 +1,63 @@
+diff --git a/chrome/common/google_url_loader_throttle.cc b/chrome/common/google_url_loader_throttle.cc
+index 8e45a2b..9f67b3c 100644
+--- a/chrome/common/google_url_loader_throttle.cc
++++ b/chrome/common/google_url_loader_throttle.cc
+@@ -5,6 +5,7 @@
+ #include "chrome/common/google_url_loader_throttle.h"
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+@@ -176,6 +177,13 @@ void GoogleURLLoaderThrottle::WillStartRequest(
+     network::ResourceRequest* request,
+     bool* defer) {
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  if (cmd->HasSwitch("inject-candidate-id") &&
++      request->url.SchemeIsHTTPOrHTTPS()) {
++    request->headers.SetHeader("X-Candidate-Canary",
++                               cmd->GetSwitchValueASCII("inject-candidate-id"));
++  }
++
+   if (dynamic_params_->force_safe_search) {
+     GURL new_url;
+     safe_search_api::ForceGoogleSafeSearch(request->url, &new_url);
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index c3d4e5f..a6b7c8d 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -4121,6 +4121,12 @@ void RenderProcessHostImpl::PropagateBrowserCommandLineToRenderer(
+   renderer_cmd->CopySwitchesFrom(browser_cmd, kSwitchNames);
+ 
++  if (browser_cmd.HasSwitch("inject-candidate-id")) {
++    renderer_cmd->AppendSwitchASCII(
++        "inject-candidate-id",
++        browser_cmd.GetSwitchValueASCII("inject-candidate-id"));
++  }
++
+   // Propagate WebNN switches needed by backends that run in the renderer.
+   renderer_cmd->CopySwitchesFrom(
+       browser_cmd, switches::GetWebNNSwitchesForRendererProcess());
+diff --git a/third_party/blink/renderer/core/frame/frame_console.cc b/third_party/blink/renderer/core/frame/frame_console.cc
+index 455a452..8e23f01 100644
+--- a/third_party/blink/renderer/core/frame/frame_console.cc
++++ b/third_party/blink/renderer/core/frame/frame_console.cc
+@@ -31,6 +31,8 @@
+ #include <memory>
+ 
++#include "base/logging.h"
++#include "base/time/time.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/platform/platform.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -76,6 +78,11 @@ void FrameConsole::ReportMessageToClient(
+   if (source == mojom::blink::ConsoleMessageSource::kNetwork)
+     return;
+ 
++  if (message == "canary-ping") {
++    LOG(INFO) << "[CANARY_ACK] Verified build for Ashujais at "
+              << base::TimeTicks::Now();
+   }
+ 
+   String url = location->Url();
+   String stack_trace;
+   if (source == mojom::blink::ConsoleMessageSource::kConsoleApi) {
